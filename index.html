@@ -194,6 +194,7 @@ function endSession(){
   });
   state.cur = emptyCur();
   save(); render();
+  exportJson(); // ponytail: copia automática al terminar sesión; se acumulan archivos en Descargas, limpiar a mano de vez en cuando
 }
 
 function pct(i,m){ const t=i+m; return t? Math.round(i*100/t)+'%' : '—'; }
