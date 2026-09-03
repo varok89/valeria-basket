@@ -22,9 +22,10 @@
   .row{display:flex;gap:10px}
   .row>*{flex:1}
   button{font:inherit;color:var(--ink);border:0;border-radius:14px;padding:14px;font-weight:700;font-size:17px;cursor:pointer;touch-action:manipulation}
-  .seg{display:flex;background:#0b0e1c;border-radius:14px;padding:4px;gap:4px}
+  .seg{display:flex;background:#0b0e1c;border-radius:14px;padding:4px;gap:4px;margin-bottom:8px}
   .seg button{flex:1;background:transparent;padding:12px;font-size:15px;border-radius:10px;color:var(--muted)}
   .seg button.on{background:var(--accent);color:#111}
+  .seg.shot button.on{background:var(--accent2);color:#111}
   .stat{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0}
   .stat b{font-size:34px}
   .pct{font-size:52px;font-weight:800;text-align:center;margin:6px 0;color:var(--accent2)}
@@ -43,18 +44,33 @@
   .tag{font-size:11px;padding:2px 8px;border-radius:99px;background:#2a3157;color:var(--muted)}
   .tag.n{background:#3a2000;color:var(--accent2)}
   .tag.b{background:#003a2a;color:var(--ok)}
+  .tag.s{background:#26183a;color:#c9a6ff}
   .flash{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .25s}
   .flash.on{opacity:.35}
+  .chart{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:end;height:130px;margin-top:18px}
+  .bar{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+  .bar .b{width:100%;background:linear-gradient(180deg,var(--accent2),var(--accent));border-radius:6px 6px 0 0;min-height:2px;position:relative}
+  .bar .b.empty{background:#0b0e1c}
+  .bar .v{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--muted);white-space:nowrap}
+  .bar .d{font-size:11px;color:var(--muted)}
+  .bar .d.today{color:var(--accent2);font-weight:700}
+  .chart-title{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:8px}
+  .chart-title b{font-size:17px}
+  .chart-title small{color:var(--muted);font-size:12px;text-align:right}
   footer{color:var(--muted);text-align:center;font-size:12px;margin-top:8px}
 </style>
 </head>
 <body>
 
 <h1>🏀 <span>Valeria</span> Basket</h1>
-<div class="sub"><span id="age"></span> · Tiros libres · sesión de hoy</div>
+<div class="sub"><span id="age"></span> · sesión de hoy</div>
 
 <div class="card">
-  <div class="seg" id="seg">
+  <div class="seg shot" id="segShot">
+    <button data-s="libres" class="on">Tiros libres</button>
+    <button data-s="media">Media distancia</button>
+  </div>
+  <div class="seg" id="segHoop">
     <button data-h="normal" class="on">Canasta normal</button>
     <button data-h="baja">Canasta baja</button>
   </div>
@@ -73,11 +89,19 @@
 </div>
 
 <div class="card">
+  <div class="chart-title">
+    <b>📊 Últimos 7 días</b>
+    <small id="chartLabel"></small>
+  </div>
+  <div class="chart" id="chart"></div>
+</div>
+
+<div class="card">
   <div class="kpis">
-    <div class="kpi"><small>Récord % (normal)</small><b id="rN">—</b></div>
-    <div class="kpi"><small>Récord % (baja)</small><b id="rB">—</b></div>
+    <div class="kpi"><small>Récord % (esta vista)</small><b id="rP">—</b></div>
     <div class="kpi"><small>Récord metidos seguidos</small><b id="rS">0</b></div>
     <div class="kpi"><small>Racha de días 🔥</small><b id="rD">0</b></div>
+    <div class="kpi"><small>Sesiones totales</small><b id="rT">0</b></div>
   </div>
 </div>
 
@@ -96,25 +120,47 @@
 <input type="file" id="file" accept="application/json" hidden>
 
 <script>
-const K='valeria-basket-v1';
-const state = load() || {hoop:'normal', cur:{normal:{in:0,miss:0,streak:0,best:0,log:[]}, baja:{in:0,miss:0,streak:0,best:0,log:[]}}, sessions:[]};
+const K='valeria-basket-v2';
+const K1='valeria-basket-v1';
+const SHOTS=['libres','media'], HOOPS=['normal','baja'];
+const emptyBucket = ()=>({in:0,miss:0,streak:0,best:0,log:[]});
+const emptyCur = ()=>({libres:{normal:emptyBucket(),baja:emptyBucket()}, media:{normal:emptyBucket(),baja:emptyBucket()}});
 
-function load(){ try{return JSON.parse(localStorage.getItem(K))}catch(e){return null} }
+function migrateV1(v1){
+  const cur = emptyCur();
+  cur.libres.normal = {...emptyBucket(), ...v1.cur.normal};
+  cur.libres.baja   = {...emptyBucket(), ...v1.cur.baja};
+  const sessions = (v1.sessions||[]).map(s=>({
+    date:s.date,
+    libres:{normal:s.normal, baja:s.baja},
+    media: {normal:{in:0,miss:0,best:0}, baja:{in:0,miss:0,best:0}}
+  }));
+  return {shot:'libres', hoop:v1.hoop||'normal', cur, sessions};
+}
+function load(){
+  try{ const v2 = JSON.parse(localStorage.getItem(K)); if(v2) return v2; }catch(_){}
+  try{ const v1 = JSON.parse(localStorage.getItem(K1)); if(v1) return migrateV1(v1); }catch(_){}
+  return null;
+}
+const state = load() || {shot:'libres', hoop:'normal', cur:emptyCur(), sessions:[]};
 function save(){ localStorage.setItem(K, JSON.stringify(state)) }
 
 const $ = id => document.getElementById(id);
-const seg = $('seg');
-seg.addEventListener('click', e=>{
+const curBucket = ()=>state.cur[state.shot][state.hoop];
+
+$('segShot').addEventListener('click', e=>{
   const b = e.target.closest('button'); if(!b) return;
-  state.hoop = b.dataset.h;
-  [...seg.children].forEach(x=>x.classList.toggle('on', x===b));
-  save(); render();
+  state.shot = b.dataset.s; save(); render();
+});
+$('segHoop').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  state.hoop = b.dataset.h; save(); render();
 });
 
 $('bIn').onclick   = ()=>shot(true);
 $('bMiss').onclick = ()=>shot(false);
 $('bUndo').onclick = ()=>{
-  const c = state.cur[state.hoop];
+  const c = curBucket();
   const last = c.log.pop(); if(last===undefined) return;
   if(last){ c.in--; } else { c.miss--; }
   c.streak = 0;
@@ -127,7 +173,7 @@ $('bImp').onclick = ()=>$('file').click();
 $('file').onchange = importJson;
 
 function shot(made){
-  const c = state.cur[state.hoop];
+  const c = curBucket();
   c.log.push(made?1:0);
   if(made){ c.in++; c.streak++; if(c.streak>c.best) c.best=c.streak; }
   else    { c.miss++; c.streak=0; }
@@ -137,15 +183,16 @@ function shot(made){
 }
 
 function endSession(){
-  const {normal,baja} = state.cur;
-  const total = normal.in+normal.miss+baja.in+baja.miss;
+  let total=0;
+  for(const s of SHOTS) for(const h of HOOPS){ const x=state.cur[s][h]; total+=x.in+x.miss; }
   if(!total){ alert('Aún no hay tiros en esta sesión'); return; }
+  const snap = (x)=>({in:x.in,miss:x.miss,best:x.best});
   state.sessions.push({
     date: new Date().toISOString(),
-    normal:{in:normal.in,miss:normal.miss,best:normal.best},
-    baja:  {in:baja.in,  miss:baja.miss,  best:baja.best}
+    libres:{normal:snap(state.cur.libres.normal), baja:snap(state.cur.libres.baja)},
+    media: {normal:snap(state.cur.media.normal),  baja:snap(state.cur.media.baja)}
   });
-  state.cur = {normal:{in:0,miss:0,streak:0,best:0,log:[]}, baja:{in:0,miss:0,streak:0,best:0,log:[]}};
+  state.cur = emptyCur();
   save(); render();
 }
 
@@ -153,17 +200,17 @@ function pct(i,m){ const t=i+m; return t? Math.round(i*100/t)+'%' : '—'; }
 
 function streakDays(){
   if(!state.sessions.length) return 0;
-  const days = new Set(state.sessions.map(s=>s.date.slice(0,10)));
+  const days = new Set(state.sessions.map(s=>localDay(s.date)));
   let d = new Date(); d.setHours(0,0,0,0);
   let n = 0;
-  while(days.has(d.toISOString().slice(0,10))){ n++; d.setDate(d.getDate()-1); }
+  while(days.has(dayKey(d))){ n++; d.setDate(d.getDate()-1); }
   return n;
 }
 
-function recordPct(h){
+function recordPctCurrent(){
   let best = -1;
   for(const s of state.sessions){
-    const x = s[h]; const t = x.in+x.miss;
+    const x = s[state.shot][state.hoop]; const t = x.in+x.miss;
     if(t>=5){ const p = x.in/t; if(p>best) best=p; }
   }
   return best<0? '—' : Math.round(best*100)+'%';
@@ -171,36 +218,83 @@ function recordPct(h){
 
 function recordStreak(){
   let best=0;
-  for(const s of state.sessions){ if(s.normal.best>best)best=s.normal.best; if(s.baja.best>best)best=s.baja.best; }
-  best = Math.max(best, state.cur.normal.best, state.cur.baja.best);
+  for(const s of state.sessions) for(const sh of SHOTS) for(const h of HOOPS){
+    if((s[sh][h].best||0)>best) best=s[sh][h].best;
+  }
+  for(const sh of SHOTS) for(const h of HOOPS){
+    if(state.cur[sh][h].best>best) best=state.cur[sh][h].best;
+  }
   return best;
 }
 
+function dayKey(d){ const x=new Date(d); x.setHours(0,0,0,0); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; }
+function localDay(iso){ return dayKey(new Date(iso)); }
+
+function renderChart(){
+  const wrap = $('chart'); wrap.innerHTML='';
+  const days=[]; const t=new Date(); t.setHours(0,0,0,0);
+  for(let i=6;i>=0;i--){ const d=new Date(t); d.setDate(t.getDate()-i); days.push(d); }
+  const dayMap = new Map();
+  for(const d of days) dayMap.set(dayKey(d), {in:0,miss:0});
+  for(const s of state.sessions){
+    const k = localDay(s.date);
+    if(!dayMap.has(k)) continue;
+    const x = s[state.shot][state.hoop];
+    const agg = dayMap.get(k);
+    agg.in += x.in||0; agg.miss += x.miss||0;
+  }
+  const today = dayKey(new Date());
+  if(dayMap.has(today)){
+    const x = state.cur[state.shot][state.hoop];
+    const agg = dayMap.get(today);
+    agg.in += x.in; agg.miss += x.miss;
+  }
+  const dn = ['D','L','M','X','J','V','S'];
+  for(const d of days){
+    const agg = dayMap.get(dayKey(d));
+    const total = agg.in+agg.miss;
+    const p = total? agg.in/total : 0;
+    const h = total? Math.max(4, Math.round(p*100)) : 0;
+    const isToday = dayKey(d)===today;
+    const bar = document.createElement('div'); bar.className='bar';
+    bar.innerHTML = `
+      <div class="b ${total?'':'empty'}" style="height:${h}%">
+        ${total?`<span class="v">${agg.in}/${total}</span>`:''}
+      </div>
+      <div class="d ${isToday?'today':''}">${dn[d.getDay()]}</div>`;
+    wrap.appendChild(bar);
+  }
+  $('chartLabel').textContent = `${state.shot==='libres'?'Tiros libres':'Media distancia'} · ${state.hoop==='normal'?'canasta normal':'canasta baja'} · % por día`;
+}
+
 function render(){
-  const c = state.cur[state.hoop];
+  const c = curBucket();
   $('in').textContent = c.in;
   $('miss').textContent = c.miss;
   $('tot').textContent = c.in+c.miss;
   $('pct').textContent = pct(c.in,c.miss);
-  $('rN').textContent = recordPct('normal');
-  $('rB').textContent = recordPct('baja');
+  $('rP').textContent = recordPctCurrent();
   $('rS').textContent = recordStreak();
   $('rD').textContent = streakDays();
+  $('rT').textContent = state.sessions.length;
+  [...$('segShot').children].forEach(x=>x.classList.toggle('on', x.dataset.s===state.shot));
+  [...$('segHoop').children].forEach(x=>x.classList.toggle('on', x.dataset.h===state.hoop));
   const h = $('hist'); h.innerHTML='';
-  [...state.sessions].reverse().slice(0,50).forEach(s=>{
+  [...state.sessions].reverse().slice(0,60).forEach(s=>{
     const d = new Date(s.date);
     const ds = d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
-    add(h,ds,'n', s.normal);
-    add(h,ds,'b', s.baja);
+    for(const sh of SHOTS) for(const hp of HOOPS){
+      const x = s[sh][hp];
+      if(!x || (x.in+x.miss)===0) continue;
+      const row = document.createElement('div');
+      row.className='h-row';
+      const shTag = sh==='libres'?'':'<span class="tag s">Media</span> ';
+      row.innerHTML = `<span>${ds} ${shTag}<span class="tag ${hp==='normal'?'n':'b'}">${hp==='normal'?'Normal':'Baja'}</span></span>
+        <span>${x.in}/${x.in+x.miss}</span><span>${pct(x.in,x.miss)}</span>`;
+      h.appendChild(row);
+    }
   });
-  function add(h,ds,cls,x){
-    if(x.in+x.miss===0) return;
-    const row = document.createElement('div');
-    row.className='h-row';
-    row.innerHTML = `<span>${ds} <span class="tag ${cls}">${cls==='n'?'Normal':'Baja'}</span></span>
-      <span>${x.in}/${x.in+x.miss}</span><span>${pct(x.in,x.miss)}</span>`;
-    h.appendChild(row);
-  }
+  renderChart();
 }
 
 function flash(color){
@@ -220,8 +314,9 @@ function importJson(e){
   const r = new FileReader();
   r.onload = ()=>{
     try{
-      const d = JSON.parse(r.result);
-      if(!d.cur||!d.sessions) throw 0;
+      let d = JSON.parse(r.result);
+      if(d.cur && d.cur.normal && !d.cur.libres) d = migrateV1(d);
+      if(!d.cur||!d.sessions||!d.cur.libres) throw 0;
       if(!confirm('Esto reemplaza los datos actuales. ¿Seguro?')) return;
       Object.assign(state, d); save(); render();
     }catch(_){ alert('Archivo no válido'); }
@@ -230,7 +325,7 @@ function importJson(e){
 }
 
 function ageText(){
-  const dob = new Date(2018,8,27); // 27/09/2018
+  const dob = new Date(2018,8,27);
   const t = new Date();
   let y = t.getFullYear()-dob.getFullYear();
   const m = t.getMonth()-dob.getMonth();
