@@ -193,8 +193,12 @@ function endSession(){
     media: {normal:snap(state.cur.media.normal),  baja:snap(state.cur.media.baja)}
   });
   state.cur = emptyCur();
+  state.sinceBackup = (state.sinceBackup||0) + 1;
   save(); render();
-  exportJson(); // ponytail: copia automática al terminar sesión; se acumulan archivos en Descargas, limpiar a mano de vez en cuando
+  if(state.sinceBackup >= 10){
+    if(confirm(`Llevas ${state.sinceBackup} sesiones sin copia de seguridad.\n¿Descargar copia ahora?`)) exportJson();
+    else { state.sinceBackup = 0; save(); } // no volver a molestar hasta las próximas 10
+  }
 }
 
 function pct(i,m){ const t=i+m; return t? Math.round(i*100/t)+'%' : '—'; }
@@ -309,6 +313,7 @@ function exportJson(){
   a.href = URL.createObjectURL(blob);
   a.download = 'valeria-basket-'+new Date().toISOString().slice(0,10)+'.json';
   a.click();
+  state.sinceBackup = 0; save();
 }
 function importJson(e){
   const f = e.target.files[0]; if(!f) return;
